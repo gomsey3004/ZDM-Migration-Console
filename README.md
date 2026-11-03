@@ -72,6 +72,7 @@ The certificate and private key remain on the server at `/etc/pki/tls/certs/zdm-
 The allowlist is enforced both by NGINX and the application. The default allows only loopback clients, which works with the SSH tunnel. To enable direct access, add the administrator's public IP/CIDR during installation. Entering `0.0.0.0/0,::/0` permits every client that can reach the host. For OCI, also add an ingress rule for TCP 443 in the instance subnet's security list or network security group; the installer cannot change OCI network rules. Do not expose port 8080. The certificate is self-signed and does not provide public CA validation.
 
 ## Service and data
+These are Service-management and troubleshooting commands
 
 ```bash
 sudo systemctl status zdm-gui zdm-hosts-manager
