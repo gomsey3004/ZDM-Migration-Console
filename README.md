@@ -54,7 +54,7 @@ The installer downloads pinned Python packages into isolated environments: FastA
 The installer generates and configures a self-signed certificate automatically. No certificate files need to be copied to the client. Open the URL shown at the end of installation:
 
 ```text
-https://<certificate-name>
+https://<host-name>
 ```
 
 The browser will report that the certificate is not trusted. Use its advanced or continue option to accept the warning and open the console, then sign in as `zdmadmin`. Use the exact hostname or IP address entered during installation because that value is included in the certificate. The connection is encrypted, but the self-signed certificate does not independently verify the server's identity.
