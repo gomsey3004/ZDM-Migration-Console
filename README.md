@@ -84,12 +84,4 @@ If ZDM auto-start was enabled during installation, check it with `sudo systemctl
 
 The default application directory is `/opt/zdm-gui`; the default data directory is `/var/lib/zdm-gui`. The installer prompts for both and reuses an existing GUI database when you select its current data directory. Before replacing an existing GUI code directory, it saves a protected backup. Back up the GUI database and ZDM credential/key storage using your normal secure backup process.
 
-## Build the executable release
 
-On the build computer, with Node.js and pnpm installed:
-
-```bash
-./portable/build-linux.sh
-```
-
-The output defaults to `portable/dist/zdm-gui-linux-x86_64.run`. It is a self-extracting shell installer, not a native ELF binary, so it can run on compatible x86-64 Linux hosts without matching the build computer's OS. It is Linux-only and targets ZDM 26.1.
