@@ -1,14 +1,32 @@
-# ZDM Migration Console Linux Installer
+# ZDM GUI — standard self-signed release
 
-This release installs the ZDM Migration Console on an existing Oracle Zero Downtime Migration 26.1 Linux service host. It does not include or install Oracle ZDM itself; it uses that host's existing `zdmcli` and `zdmservice` commands.
+An HTTPS console for an existing Oracle Zero Downtime Migration 26.1
+installation. Choose either a root-managed system installation or an
+owner-only installation as the ZDM owner (`zdmuser`). Both modes generate a
+private self-signed server certificate. This package does not install or
+upgrade Oracle ZDM.
 
-## Supported host
+## Requirements and defaults
 
-Use an Oracle Linux or Red Hat Enterprise Linux x86-64 host that is already running ZDM. Oracle lists Oracle Linux 7, 8, and 9 and RHEL 8 and 9 as ZDM 26.1 service-host platforms ([platform requirements](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/introduction-to-zero-downtime-migration.html), [installation prerequisites](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/installing-zero-downtime-migration-software.html)). The installer accepts exactly OL 7/8/9 and RHEL 8/9. It chooses Python 3.8 or newer and matching development headers: OL7 uses Oracle's `rh-python38` software collection; OL8 and RHEL8 use an available Python 3.8–3.11 runtime; OL9 and RHEL9 use an available Python 3.9–3.11 runtime. The GUI installs into isolated virtual environments and does not replace the OS Python or ZDM's runtime.
+Use an x86-64 Oracle Linux 7/8/9 or RHEL 8/9 host with Oracle ZDM already
+installed. Oracle documents these service-host platforms in the
+[platform requirements](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/introduction-to-zero-downtime-migration.html)
+and [installation prerequisites](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/installing-zero-downtime-migration-software.html).
+The GUI uses isolated Python environments and does not replace the OS Python or
+ZDM runtime. Package-repository access is required during installation.
 
-## Install
+| Component | System mode | User mode |
+| --- | --- | --- |
+| Application | `/opt/zdm-gui` | `~/zdm-gui` |
+| Persistent GUI data | `/var/lib/zdm-gui` | `~/.local/share/zdm-gui` |
+| Install manifest | system configuration | `~/.config/zdm-gui/install.json` |
+| GUI service | system `zdm-gui.service` | optional user `zdm-gui.service` |
+| HTTPS endpoint | NGINX on `0.0.0.0:443` | Uvicorn on `127.0.0.1:8443` |
+| Allowed clients | `127.0.0.1/32,::1/128` | `127.0.0.1/32,::1/128` |
+| ZDM home / base / stage | `/u01/app/zdmhome`, `/u01/app/zdmbase`, `/u01/app/zdmstage` | same |
 
-On a new ZDM installation, create the stage directory before starting the GUI installer. Replace `zdmuser` if ZDM runs under a different operating-system account:
+Create the stage directory before installing if it does not already exist.
+Replace `zdmuser` if ZDM runs under another account:
 
 ```bash
 ZDM_OS_USER=zdmuser
@@ -16,63 +34,193 @@ ZDM_STAGE=/u01/app/zdmstage
 sudo install -d -o "$ZDM_OS_USER" -g "$(id -gn "$ZDM_OS_USER")" -m 0750 "$ZDM_STAGE"
 ```
 
-The stage directory must be an existing absolute path owned by, or writable by, the ZDM operating-system account. The GUI creates a `gui-responses` directory inside it for generated response files and related working content.
+Application and data directories must be dedicated paths and must not overlap
+ZDM storage. The stage directory must be writable by the ZDM owner. Choose a
+free HTTPS port in user mode if another application already uses `8443`.
 
-Copy `zdm-gui-linux-x86_64.run` to the ZDM host and run:
+## Certificates
+
+The installer creates a 3072-bit RSA self-signed certificate containing the
+DNS hostname or IP entered during installation plus loopback IP SANs for SSH
+tunnels. Use the exact configured identity in the browser URL. The connection
+is encrypted, but the self-signed certificate does not independently verify
+the server's identity.
+
+System-mode certificate files are:
+
+- `/etc/pki/tls/certs/zdm-gui.crt`
+- `/etc/pki/tls/private/zdm-gui.key`
+
+User-mode certificate files are stored under `~/zdm-gui/tls/` unless a custom
+application directory was selected. The private key remains mode `0600`.
+Trusting the public certificate on client systems is optional and removes the
+browser warning. Use the organization's approved trust process; never copy the
+private key to a client.
+
+If an organization-issued private-CA identity is required instead, use the
+separate private-CA release and its README. This standard installer does not
+import an external certificate chain.
+
+## Install with Sudo privileges
+
+System mode installs root-owned application code and Python environments, runs
+the backend as the existing ZDM owner on loopback port `8080`, and exposes HTTPS
+through NGINX on port `443`.
 
 ```bash
 chmod 755 zdm-gui-linux-x86_64.run
 sudo ./zdm-gui-linux-x86_64.run
 ```
 
-The installer detects the Linux distribution, displays missing system packages, and asks before using `dnf` or `yum` to install them. It prompts for the ZDM home, base, and stage directories and the existing ZDM operating-system account. Confirm that the ZDM home contains executable `bin/zdmcli` and `bin/zdmservice`.
+Run it from an interactive terminal. The installer prompts for application,
+data and ZDM paths; the ZDM operating-system account; certificate name; browser
+client IP/CIDR allowlist; host-firewall access; and optional Oracle ZDM service
+auto-start. Confirm that ZDM home contains executable `bin/zdmcli` and
+`bin/zdmservice`.
 
-On a new GUI database, the installer generates a random initial `zdmadmin` password and displays it once after a successful install. The app receives it through a temporary root-only file under `/run`; the installer removes that file after account initialization and the database stores only a password hash. Sign in with the generated password and change it when prompted on first run. Existing GUI accounts, password hashes, profiles, and audit history are preserved on upgrade.
+The installer displays missing RPM packages and asks before installing them
+with `dnf` or `yum`. It creates and enables `zdm-gui.service`,
+`zdm-hosts-manager.service`, and NGINX. The backend remains bound to
+`127.0.0.1:8080`; NGINX listens on the network and provides encrypted web
+access at `https://HOSTNAME`. Replace `HOSTNAME` with the certificate hostname
+entered during installation.
 
-The installer creates or updates `zdm-gui.service` and `zdm-hosts-manager.service`, enables both at boot, installs isolated Python environments for the GUI and OCI CLI, and keeps the web app bound to `127.0.0.1:8080`. The environments remain root-owned and non-writable by the service account, with read/execute permissions so the configured ZDM OS account can run them. HTTPS through NGINX is mandatory. The installer asks for the hostname or IP address users will visit, the browser client IP/CIDR allowlist, and whether to open TCP 443 in an active `firewalld` zone. It generates a self-signed certificate and enables NGINX at boot.
+Oracle ZDM auto-start is opt-in. Selecting it creates and enables the separate
+`zdmservice-autostart.service` unit. The default is No. Declining removes only
+that installer-managed unit and does not stop a running ZDM service.
 
-The installer also asks whether to start `zdmservice` automatically after each reboot. If enabled, it installs and enables a separate `zdmservice-autostart.service` systemd unit that runs the existing `$ZDM_HOME/bin/zdmservice start` and `stop` commands as the configured ZDM OS account. The default is No. Declining this option disables and removes only that installer-managed unit. The installer does not install or upgrade Oracle ZDM itself.
+On a new GUI database, a random initial `zdmadmin` password appears once after
+successful installation. Store it securely and change it at first sign-in.
+Existing GUI accounts, password hashes, profiles and audit history are
+preserved when the same data directory is reused.
 
-## System packages
+## User precheck and install
 
-The installer detects the OS release, checks and offers to install the matching RPM packages, and enables any required Oracle Linux repositories before installing their contents:
+User mode requires Python 3.9+ with venv, SSL and SQLite, plus OpenSSL,
+SSH/ssh-keygen, expect and unzip. It never invokes sudo, `dnf`/`yum`, NGINX,
+firewall tools or system service changes. The current account must own ZDM home
+and must be able to write ZDM base and stage.
 
-- Python 3.8 or newer and matching development headers (OL7 uses `rh-python38`)
-- `gcc`, `openssl-devel`, `libffi-devel`, `glibc-devel`
-- `expect`, `unzip`, `libaio`, `sqlite`; `libnsl` on OL8/9 and RHEL8/9
-- `nginx` for the mandatory HTTPS reverse proxy
-- OL7: `oraclelinux-developer-release-el7`, `oracle-softwarecollection-release-el7`, `scl-utils`, `rh-python38`, and the Oracle EPEL release package when NGINX is missing
-- OL8: `oraclelinux-developer-release-el8` and `ncurses-compat-libs`
-- OL9 and RHEL: available Python runtime/development packages; no Oracle Linux release RPMs
-
-Oracle's ZDM prerequisites are separate from the GUI. Follow the Oracle ZDM installation documentation for the selected OS and ZDM build. Oracle Linux 8 minimal installations may need `unzip`, `libaio`, `libnsl`, `oraclelinux-developer-release-el8`, and `ncurses-compat-libs`.
-
-The installer downloads pinned Python packages into isolated environments: FastAPI, Uvicorn, Pydantic, HTTPX, Cryptography, Pexpect, and OCI CLI. Pip is kept on a release compatible with Python 3.8. Access to configured RPM and Python package repositories is needed during installation. The prebuilt web interface is bundled, so Node.js and pnpm are not required on the ZDM host. EL7 repository availability depends on the customer's enabled Oracle Linux 7 channels and current mirror access.
-
-## Open the GUI over HTTPS
-
-The installer generates and configures a self-signed certificate automatically. No certificate files need to be copied to the client. Open the URL shown at the end of installation:
-
-```text
-https://<host-name>
-```
-
-The browser will report that the certificate is not trusted. Use its advanced or continue option to accept the warning and open the console, then sign in as `zdmadmin`. Use the exact hostname or IP address entered during installation because that value is included in the certificate. The connection is encrypted, but the self-signed certificate does not independently verify the server's identity.
-
-For a private SSH tunnel, map the NGINX HTTPS listener rather than the backend:
+On Oracle Linux 8, an administrator can prepare the runtime without replacing
+the OS Python:
 
 ```bash
-ssh -N -L 18443:127.0.0.1:443 <ssh-user>@<zdm-host>
+sudo dnf module install -y python39
+sudo dnf install -y python39-pip openssl openssh-clients expect unzip
 ```
 
-Then browse to `https://127.0.0.1:18443`, accept the self-signed certificate warning, and sign in. The generated certificate includes the loopback IPs for this tunnel use.
+Oracle Linux 8 AppStream must be enabled and reachable. Do not replace
+`/usr/bin/python3` or change the system Python alternatives. See
+[Oracle's Python installation guidance](https://yum.oracle.com/oracle-linux-python.html).
+If pip later needs to compile a package, ask the administrator to install:
 
-The certificate and private key remain on the server at `/etc/pki/tls/certs/zdm-gui.crt` and `/etc/pki/tls/private/zdm-gui.key`. Importing the certificate into client trust stores is optional and is only needed to remove the browser warning.
+```bash
+sudo dnf install -y gcc python39-devel openssl-devel libffi-devel
+```
 
-The allowlist is enforced both by NGINX and the application. The default allows only loopback clients, which works with the SSH tunnel. To enable direct access, add the administrator's public IP/CIDR during installation. Entering `0.0.0.0/0,::/0` permits every client that can reach the host. For OCI, also add an ingress rule for TCP 443 in the instance subnet's security list or network security group; the installer cannot change OCI network rules. Do not expose port 8080. The certificate is self-signed and does not provide public CA validation.
+As `zdmuser`, verify the runtime:
 
-## Service and data
-These are Service-management and troubleshooting commands
+```bash
+python3.9 - <<'PY'
+import sys, ssl, sqlite3, venv, tempfile, subprocess
+print("Python:", sys.version.split()[0])
+print("SSL:", ssl.OPENSSL_VERSION)
+print("SQLite:", sqlite3.sqlite_version)
+with tempfile.TemporaryDirectory(prefix="zdm-python-check-") as folder:
+    venv.EnvBuilder(with_pip=True).create(folder)
+    subprocess.run([folder + "/bin/python", "-m", "pip", "--version"], check=True)
+print("Python prerequisites passed.")
+PY
+```
+
+Run a no-write precheck, then install as the ZDM owner without sudo:
+
+```bash
+chmod 755 zdm-gui-linux-x86_64.run
+./zdm-gui-linux-x86_64.run --user --yes --check
+./zdm-gui-linux-x86_64.run --user
+```
+
+`Checks passed. No changes made.` confirms the local prerequisite and path
+checks; it does not test package downloads, external firewall reachability or
+client certificate trust. Running the installer as any non-root account also
+selects user mode automatically.
+
+The default binding is loopback. For direct access select `0.0.0.0` and set the
+browser-client allowlist to actual source IPs/CIDRs. `0.0.0.0` is a listen
+address, not a browser URL or certificate identity.
+
+## User installer options
+
+| Option | Meaning / default |
+| --- | --- |
+| `--user` | Select owner-only mode; supply it first. A non-root caller selects user mode automatically. |
+| `--yes` | Accept defaults for unanswered prompts; explicit arguments override defaults. |
+| `--check` | Validate prerequisites and paths without installing. |
+| `--app-dir PATH` | Application directory; default `~/zdm-gui`. |
+| `--data-dir PATH` | Persistent data; default `~/.local/share/zdm-gui`. |
+| `--zdm-home PATH` | Existing owner-matching ZDM home; default `/u01/app/zdmhome`. |
+| `--zdm-base PATH` | Existing writable ZDM base; default `/u01/app/zdmbase`. |
+| `--zdm-stage PATH` | Existing writable stage; default `/u01/app/zdmstage`. |
+| `--tls-name NAME` | Browser DNS hostname or IP; default server FQDN. |
+| `--bind ADDRESS` | `127.0.0.1` or `0.0.0.0`; default loopback. |
+| `--port NUMBER` | HTTPS port; default `8443`, valid range `1024`–`65535`. |
+| `--allowed-clients CIDRS` | Comma-separated IPs/CIDRs; default loopback only. |
+| `--service auto` | Default: user systemd service if available, otherwise manual. |
+| `--service manual` | Use start/stop scripts; no automatic startup after reboot. |
+| `--service user` | Require a working user systemd manager and enable the GUI unit. |
+| `--no-start` | Install without starting the GUI immediately. |
+| `--help` / `-h` | Show installer help. |
+
+The root-managed system installer is interactive and does not accept these
+user-mode options.
+
+## Command help
+
+Display general installer help, detailed user-mode options, or uninstaller
+options without making changes:
+
+```bash
+./zdm-gui-linux-x86_64.run --help
+./zdm-gui-linux-x86_64.run --user --help
+./zdm-gui-uninstall.run --help
+```
+
+The first command describes system and user installation modes. The second
+lists every user installer argument and default. The third lists system/user
+uninstall, dry-run, path and ZDM auto-start options.
+
+## Firewall, access and client trust
+
+The GUI allowlist and network firewalls must both permit the browser client's
+source IP. In system mode the installer can offer to open HTTPS in the active
+firewalld zone. In user mode an administrator must allow the selected port.
+OCI security lists or NSGs must also allow the port; the installer cannot
+change OCI network rules.
+
+For a loopback-only user installation, create a tunnel from the client:
+
+```bash
+ssh -N -L 18443:127.0.0.1:8443 SSH_USER@ZDM_HOST
+```
+
+Open `https://127.0.0.1:18443`. For a loopback-only system installation, tunnel
+the NGINX listener instead:
+
+```bash
+ssh -N -L 18443:127.0.0.1:443 SSH_USER@ZDM_HOST
+```
+
+The generated certificate includes loopback SANs. Accept the self-signed
+certificate warning or import the public certificate using the approved client
+trust process. For direct system-mode access, open `https://HOSTNAME`. For
+direct user-mode access, open `https://HOSTNAME:8443` unless a different port
+was selected. In both cases, replace `HOSTNAME` with the certificate hostname
+entered during installation. Do not use `0.0.0.0` as the browser URL.
+
+## Startup, logs and access after reboot
+
+For system mode:
 
 ```bash
 sudo systemctl status zdm-gui zdm-hosts-manager
@@ -80,8 +228,142 @@ sudo journalctl -u zdm-gui -n 100 --no-pager
 sudo systemctl restart zdm-gui
 ```
 
-If ZDM auto-start was enabled during installation, check it with `sudo systemctl status zdmservice-autostart`.
+`systemctl status zdm-gui zdm-hosts-manager` checks both GUI components:
 
-The default application directory is `/opt/zdm-gui`; the default data directory is `/var/lib/zdm-gui`. The installer prompts for both and reuses an existing GUI database when you select its current data directory. Before replacing an existing GUI code directory, it saves a protected backup. Back up the GUI database and ZDM credential/key storage using your normal secure backup process.
+- `zdm-gui` runs the web application as the configured ZDM operating-system
+  account. A healthy service reports `Loaded: loaded`, `enabled`, and
+  `Active: active (running)`.
+- `zdm-hosts-manager` is the root helper used only for GUI-managed hostname
+  entries. It should also report `active (running)`. User-mode installations do
+  not use this system helper and treat `/etc/hosts` as read-only.
 
+`journalctl -u zdm-gui -n 100 --no-pager` prints the latest 100 GUI log lines
+without opening the interactive pager. Use it after a failed start, an HTTP 5xx
+response, or an unexpected restart. Add `-f` to follow new messages live:
 
+```bash
+sudo journalctl -u zdm-gui -f
+```
+
+`systemctl restart zdm-gui` stops and starts only the GUI backend; it does not
+restart Oracle ZDM or NGINX. Wait for queued/running migration operations before
+restarting. Afterward verify all web components and the HTTPS configuration:
+
+```bash
+sudo systemctl status zdm-gui zdm-hosts-manager nginx
+sudo nginx -t
+curl -kI https://HOSTNAME/
+```
+
+Replace `HOSTNAME` with the configured server hostname. If the helper itself
+needs restarting, do so explicitly with
+`sudo systemctl restart zdm-hosts-manager`.
+
+The system GUI and NGINX are enabled at boot. If Oracle ZDM auto-start was
+selected, check it separately with:
+
+```bash
+sudo systemctl status zdmservice-autostart.service
+```
+
+For user mode, log in as the installation owner and run without sudo:
+
+```bash
+~/zdm-gui/bin/zdm-gui-start
+~/zdm-gui/bin/zdm-gui-status
+~/zdm-gui/bin/zdm-gui-stop
+```
+
+Replace `~/zdm-gui` if a custom application directory was selected. Manual
+mode must be started again after reboot and may be terminated at logout by the
+host's session policy. Its log is `~/zdm-gui/logs/gui.log`:
+
+```bash
+tail -50 ~/zdm-gui/logs/gui.log
+```
+
+For a user-service installation:
+
+```bash
+systemctl --user status zdm-gui.service
+journalctl --user -u zdm-gui.service -n 50 --no-pager
+```
+
+Automatic user-service startup at boot and survival after logout require a
+working user systemd manager and, where appropriate, administrator-enabled
+lingering:
+
+```bash
+sudo loginctl enable-linger zdmuser
+```
+
+This controls GUI startup only. Oracle ZDM service startup remains separately
+managed.
+
+## Upgrade and preserved data
+
+Rerun the installer in the same mode and select the same application, data and
+ZDM paths. System mode is interactive. For user mode, repeat any non-default
+network, service or path arguments because omitted options use their defaults.
+
+Queued or running GUI operations block upgrade and uninstall. Existing accounts,
+password hashes, profiles and audit history are preserved when the same data
+directory is used. The installer saves protected snapshots before replacing
+existing application code: system backups are under `/var/backups/zdm-gui/` and
+user backups are under `~/.local/state/zdm-gui/backups/`.
+
+The generated certificate is installer-managed. Record the selected certificate
+identity and network settings before upgrade. Back up GUI data and ZDM
+credential/key storage using the organization's secure backup process.
+
+## Uninstall
+
+Preview the detected paths before removing a system installation:
+
+```bash
+sudo ./zdm-gui-uninstall.run --dry-run
+sudo ./zdm-gui-uninstall.run
+```
+
+The uninstaller asks you to type `UNINSTALL`. Use `--app-dir PATH` and
+`--data-dir PATH` if automatic detection is incorrect. `--yes` supports
+unattended execution after reviewing the dry run.
+
+It asks about Oracle ZDM auto-start only when
+`zdmservice-autostart.service` is installed. The default is to preserve it.
+`--remove-zdm-autostart` explicitly disables and removes the boot unit without
+stopping the currently running Oracle ZDM service. `--yes` alone preserves it.
+
+### Uninstall the GUI as zdmuser
+
+For a user installation, log in as `zdmuser` (or the account that installed the
+GUI) and run without sudo:
+
+```bash
+./zdm-gui-uninstall.run --user --dry-run
+./zdm-gui-uninstall.run --user
+```
+
+Use `--app-dir PATH` if a custom location has no manifest. User uninstall acts
+only on user-owned files and user services. Its optional auto-start removal can
+remove only an installed **user** ZDM auto-start unit; it cannot change system
+units.
+
+Both modes preserve GUI data, Oracle ZDM software, ZDM home/base/stage,
+migration files, managed `/etc/hosts` entries and backups, shared packages,
+firewall rules and SELinux settings. Configuration and TLS material are backed
+up under `/var/backups/zdm-gui-uninstall.*` in system mode or
+`~/.local/state/zdm-gui/uninstall-backups/` in user mode. Remove obsolete
+firewall and client trust settings separately after review.
+
+## Security and validation scope
+
+The release preserves the GUI's authentication, password-change requirement,
+roles and source-IP allowlist. User mode treats `/etc/hosts` as read-only;
+hostname-resolution checks remain available. System mode uses the separate
+root helper for managed host entries.
+
+Self-signed TLS protects transport but does not provide CA-backed server
+identity. The release does not add MFA, login throttling, CRL or OCSP checking.
+Restrict network access and protect migration response files, logs, GUI data,
+backups and ZDM credentials according to the organization's requirements.
