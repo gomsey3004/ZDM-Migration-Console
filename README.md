@@ -6,6 +6,52 @@ owner-only installation as the ZDM owner (`zdmuser`). Both modes generate a
 private self-signed server certificate. This package does not install or
 upgrade Oracle ZDM.
 
+## Console components
+
+| Component | Purpose |
+| --- | --- |
+| Migration overview | Shows total, running, completed and attention-required jobs with live ZDM status and quick access to new migrations. |
+| Migration profiles | Connects source and target systems, selects a response file, and configures advanced ZDM CLI options before evaluation or execution. |
+| Response files | Creates, imports, previews and edits Logical or Physical Oracle ZDM response files using the ZDM 26.1 parameter catalog. |
+| Connections & keys | Stores source/target connection definitions and securely registers the SSH or OCI keys used by ZDM checks and migrations. |
+| Activity history | Records submitted console operations, their results and diagnostic output for review. |
+| ZDM service | Displays the installed ZDM version, service state, paths and repository details reported by the existing service host. |
+| Hostname resolution | Tests name resolution from the ZDM host. System installations can manage a protected GUI block in `/etc/hosts`; user installations are read-only. |
+| DB & GG wallets | Creates and manages database and GoldenGate wallets referenced by logical migration response files. |
+| Users & roles | Provides Viewer, Manager and Administrator access levels, password management and account status controls. |
+
+## Console screenshots
+
+The screenshots below illustrate the main workflow. They contain no passwords,
+private keys or active migration credentials.
+
+### Migration overview
+
+Monitor the job inventory and status summary, then create a migration profile.
+
+![ZDM Migration Console migration overview](https://raw.githubusercontent.com/gomsey3004/ZDM-Migration-Console/main/screenshots/dashboard.png)
+
+### Source and target connections
+
+Define the server role, address, operating-system account, SSH key and optional
+database-listener reachability check.
+
+![Add a source or target server connection](https://raw.githubusercontent.com/gomsey3004/ZDM-Migration-Console/main/screenshots/add-connection.png)
+
+### Response-file builder
+
+Build Logical or Physical response files with method-aware required parameters,
+or import and edit an existing `.rsp` file.
+
+![Create an Oracle ZDM response file](https://raw.githubusercontent.com/gomsey3004/ZDM-Migration-Console/main/screenshots/response-builder.png)
+
+### Migration profile options
+
+Combine connections and response files, then add only the advanced ZDM options
+needed for the migration before evaluation or execution.
+
+![Configure migration profile options](https://raw.githubusercontent.com/gomsey3004/ZDM-Migration-Console/main/screenshots/migration-options.png)
+
 ## Requirements and defaults
 
 Use an x86-64 Oracle Linux 7/8/9 or RHEL 8/9 host with Oracle ZDM already
