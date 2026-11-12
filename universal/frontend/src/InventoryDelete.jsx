@@ -1,0 +1,20 @@
+import React,{useState} from 'react';
+import {Trash2,RotateCcw,X,TriangleAlert} from 'lucide-react';
+const labels={'wallets':'wallet','keys':'private key','connections':'connection','oci-profiles':'OCI profile'};
+function Modal({title,onClose,children}){return <div className="scrim" onClick={onClose}><section className="modal" role="dialog" aria-modal="true" aria-label={title} onClick={e=>e.stopPropagation()}><header><h2>{title}</h2><button className="icon-button" aria-label="Close inventory dialog" onClick={onClose}><X size={17}/></button></header>{children}</section></div>}
+function Confirmation({api,kind,item,action,onClose,onDone}){
+ const [text,setText]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const phrase=action.toUpperCase()+' '+item.name;
+ const close=()=>{if(!busy)onClose()};
+ async function submit(e){e.preventDefault();setBusy(true);setError('');try{await api('/inventory/'+kind+'/'+item.id+'/'+action,{confirmation:text});await onDone();onClose()}catch(e){setError(e.message)}finally{setBusy(false)}}
+ return <Modal title={(action==='delete'?'Delete ':'Restore ')+labels[kind]} onClose={close}><form onSubmit={submit}><div className="modal-body"><h3>{item.name}</h3><p>{action==='delete'?'This removes the item from the active GUI list. You can restore it from Deleted items. Wallet, private-key and OCI configuration files remain on the server so existing ZDM jobs can continue using them. Referenced items must be detached from saved profiles/connections first.':'Restore this item to the active list. Its original server files must still exist. Restore dependent keys first, then run connection checks again.'}</p>{error&&<div className="error" role="alert"><TriangleAlert size={17}/>{error}</div>}<label className="field"><span>Type {phrase} to confirm</span><input autoComplete="off" value={text} onChange={e=>setText(e.target.value)} disabled={busy}/></label></div><footer className="modal-footer"><button className="secondary" type="button" disabled={busy} onClick={close}>Cancel</button><button className={action==='delete'?'danger-button':'primary'} disabled={busy||text!==phrase}>{action==='delete'?'Delete item':'Restore item'}</button></footer></form></Modal>
+}
+export default function InventoryDelete({api,kind,item,refresh,disabled=false}){
+ const [open,setOpen]=useState(false);
+ return <><button className="danger secondary" disabled={disabled} aria-label={'Delete '+labels[kind]+' '+item.name} onClick={()=>setOpen(true)}><Trash2 size={15}/>Delete</button>{open&&<Confirmation api={api} kind={kind} item={item} action="delete" onClose={()=>setOpen(false)} onDone={refresh}/>}</>
+}
+export function DeletedInventory({api,kinds,refresh}){
+ const [open,setOpen]=useState(false),[items,setItems]=useState([]),[selected,setSelected]=useState(null),[error,setError]=useState('');
+ async function load(){const rows=await api('/inventory/deleted');setItems(rows.filter(row=>kinds.includes(row.kind)))}
+ return <div className="inventory-deleted"><button className="secondary" onClick={async()=>{setOpen(true);setError('');try{await load()}catch(e){setError(e.message)}}}><RotateCcw size={15}/>Deleted items</button>{open&&!selected&&<Modal title="Deleted items" onClose={()=>setOpen(false)}><div className="modal-body"><p>Restore entries to the active list. Credential files have been retained on the server.</p>{error&&<div className="error" role="alert">{error}</div>}{!items.length&&!error&&<p>No deleted items.</p>}{items.map(item=><div className="deleted-inventory-row" key={item.kind+item.id}><div><strong>{item.name}</strong><small>{labels[item.kind]} · {new Date(item.deleted_at).toLocaleString()}</small></div><button className="secondary" onClick={()=>setSelected(item)}><RotateCcw size={15}/>Restore</button></div>)}</div><footer className="modal-footer"><button className="secondary" onClick={()=>setOpen(false)}>Close</button></footer></Modal>}{selected&&<Confirmation api={api} kind={selected.kind} item={selected} action="restore" onClose={()=>setSelected(null)} onDone={async()=>{await refresh();await load()}}/>}</div>
+}

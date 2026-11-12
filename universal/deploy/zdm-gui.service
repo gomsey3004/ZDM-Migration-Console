@@ -1,0 +1,26 @@
+[Unit]
+Description=ZDM Migration Console
+After=network-online.target zdm-hosts-manager.service
+Wants=network-online.target zdm-hosts-manager.service
+
+[Service]
+Type=simple
+User=zdmuser
+Group=zdm
+WorkingDirectory=/u01/app/zdm-gui
+EnvironmentFile=/etc/zdm-gui.env
+Environment=PYTHONPATH=/u01/app/zdm-gui/.venv/lib/python3.11/site-packages:/u01/app/zdm-gui
+ExecStart=/usr/bin/python3.11 -m uvicorn backend.app:app --host 127.0.0.1 --port 8080 --proxy-headers --forwarded-allow-ips=127.0.0.1 --workers 1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/u01/app/zdm-gui/data /u01/app/zdmhome /u01/app/zdmbase /u01/app/zdmstage
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

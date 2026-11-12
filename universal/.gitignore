@@ -1,0 +1,13 @@
+node_modules/
+frontend/dist/
+portable/dist/
+enterprise/dist/
+__pycache__/
+.venv/
+data/
+*.sqlite*
+*.tar.gz
+.credentials.json
+.DS_Store
+
+private-ca/dist/

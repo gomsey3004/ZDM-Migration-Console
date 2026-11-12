@@ -1,0 +1,11 @@
+import React,{useState} from 'react';
+import {ChevronDown,KeyRound,Plus} from 'lucide-react';
+import WalletCreateDialog from './WalletCreateDialog';
+
+const PURPOSES=['WALLET_SOURCEADMIN','WALLET_TARGETADMIN','WALLET_SOURCEGGADMIN','WALLET_TARGETGGADMIN','WALLET_SOURCECONTAINER','WALLET_SOURCECGGADMIN','WALLET_OGGADMIN','WALLET_OGGSERVICEADMIN'];
+export default function ResponseWalletPicker({api,items,refresh,serviceUser,selected,onChange,physical}){
+ const [open,setOpen]=useState(false),[created,setCreated]=useState([]);
+ const available=[...created,...items.filter(item=>!created.some(row=>row.id===item.id))].filter(item=>PURPOSES.includes(item.purpose));
+ if(physical)return <details className="wallet-selection wallet-collapsible"><summary><span><KeyRound size={17}/><strong>Database & GoldenGate wallets</strong></span><span>Not used for physical migration<ChevronDown size={15}/></span></summary><p>These database and GoldenGate wallets populate logical response files. Configure physical migration wallet options under Advanced.</p></details>;
+ return <><details className="wallet-selection wallet-collapsible"><summary><span><KeyRound size={17}/><strong>Database & GoldenGate wallets</strong></span><span>{selected.length} selected<ChevronDown size={15}/></span></summary><div className="wallet-selection-body"><div className="wallet-selection-heading"><p>Select existing credentials to populate wallet paths and usernames in this response file.</p><button type="button" className="secondary" onClick={()=>setOpen(true)}><Plus size={15}/>Add wallet</button></div>{available.length?available.map(wallet=><label className="wallet-choice" key={wallet.id}><input type="checkbox" checked={selected.includes(wallet.id)} onChange={e=>onChange(e.target.checked?[...selected,wallet.id]:selected.filter(id=>id!==wallet.id))}/><span><strong>{wallet.name}</strong><small>{wallet.label} · {wallet.username}</small></span></label>):<small>No database or GoldenGate wallets yet. Add one here, then it will be saved with the response file.</small>}</div></details>{open&&<WalletCreateDialog api={api} serviceUser={serviceUser} allowedPurposes={PURPOSES} onClose={()=>setOpen(false)} onCreated={async wallet=>{setCreated(old=>[wallet,...old]);onChange([...selected,wallet.id]);setOpen(false);await refresh?.()}}/>}</>
+}
