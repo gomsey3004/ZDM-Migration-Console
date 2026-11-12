@@ -1,3 +1,0 @@
-#!/bin/sh
-# Dedicated OCI runtime, isolated from the GUI's Python dependencies.
-PYTHONPATH=/u01/app/zdm-gui/.oci-venv/lib/python3.11/site-packages exec /usr/bin/python3.11 -c 'from oci_cli.cli import cli; cli()' "$@"

@@ -1,8 +1,0 @@
-[Unit]
-Description=Renew the ZDM GUI direct-IP HTTPS certificate
-Wants=network-online.target
-After=network-online.target nginx.service
-
-[Service]
-Type=oneshot
-ExecStart=/opt/zdm-certbot/bin/certbot renew --quiet
