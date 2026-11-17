@@ -1,10 +1,11 @@
-# ZDM GUI — standard self-signed release
+# ZDM GUI — universal TLS release
 
-An HTTPS console for an existing Oracle Zero Downtime Migration 26.1
-installation. Choose either a root-managed system installation or an
-owner-only installation as the ZDM owner (`zdmuser`). Both modes generate a
-private self-signed server certificate. This package does not install or
-upgrade Oracle ZDM.
+An HTTPS console for an existing Oracle Zero Downtime Migration 21.4, 21.5,
+or 26.1 installation. Choose either a root-managed system installation or an
+owner-only installation as the ZDM owner (`zdmuser`). For ZDM 21.4, 21.5 and
+26.1, both modes support either a generated self-signed certificate or an
+organization/private-CA certificate. This package does not install or upgrade
+Oracle ZDM.
 
 ## Console components
 
@@ -12,7 +13,7 @@ upgrade Oracle ZDM.
 | --- | --- |
 | Migration overview | Shows total, running, completed and attention-required jobs with live ZDM status and quick access to new migrations. |
 | Migration profiles | Connects source and target systems, selects a response file, and configures advanced ZDM CLI options before evaluation or execution. |
-| Response files | Creates, imports, previews and edits Logical or Physical Oracle ZDM response files using the ZDM 26.1 parameter catalog. |
+| Response files | Creates, imports, previews and edits Logical or Physical Oracle ZDM response files using the templates installed with the detected ZDM release. |
 | Connections & keys | Stores source/target connection definitions and securely registers the SSH or OCI keys used by ZDM checks and migrations. |
 | Activity history | Records submitted console operations, their results and diagnostic output for review. |
 | ZDM service | Displays the installed ZDM version, service state, paths and repository details reported by the existing service host. |
@@ -54,10 +55,10 @@ needed for the migration before evaluation or execution.
 
 ## Requirements and defaults
 
-Use an x86-64 Oracle Linux 7/8/9 or RHEL 8/9 host with Oracle ZDM already
-installed. Oracle documents these service-host platforms in the
-[platform requirements](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/introduction-to-zero-downtime-migration.html)
-and [installation prerequisites](https://docs.oracle.com/en/database/oracle/zero-downtime-migration/26.1/zdmug/installing-zero-downtime-migration-software.html).
+Use an x86-64 host with Oracle ZDM already installed. ZDM 21.4 and 21.5 use
+Oracle Linux 7/8 or RHEL 8. ZDM 26.1 additionally supports Oracle Linux 9 and
+RHEL 9. Review the matching Oracle installation guide for the detected release.
+The installer rejects other ZDM release lines and invalid OS/release pairings.
 The GUI uses isolated Python environments and does not replace the OS Python or
 ZDM runtime. Package-repository access is required during installation.
 
@@ -86,11 +87,22 @@ free HTTPS port in user mode if another application already uses `8443`.
 
 ## Certificates
 
-The installer creates a 3072-bit RSA self-signed certificate containing the
-DNS hostname or IP entered during installation plus loopback IP SANs for SSH
-tunnels. Use the exact configured identity in the browser URL. The connection
-is encrypted, but the self-signed certificate does not independently verify
-the server's identity.
+Choose `self-signed` (the backward-compatible default) or `private-ca` for any
+supported ZDM release. Self-signed mode creates a 3072-bit RSA certificate
+containing the selected DNS/IP identity plus loopback SANs. It encrypts the
+connection but does not independently verify server identity.
+
+Private-CA mode follows the Oracle GoldenGate full-chain ordering and requires:
+
+- `--tls-cert`: PEM leaf certificate first, followed by intermediate CA certificates.
+- `--tls-key`: matching unencrypted server private key, inaccessible to group/other users.
+- `--tls-ca`: public root CA trust bundle. Never provide a CA private key.
+
+Before installation, the installer verifies the chain, hostname/IP SAN,
+validity, `CA:FALSE`, TLS server usage and matching key. It copies only the
+server key and public certificates. The CA private key must stay off the ZDM
+server. Generate the server key and CSR using the organization's approved CA
+process; send only the CSR to the CA and keep the private key on the GUI host.
 
 System-mode certificate files are:
 
@@ -103,9 +115,9 @@ Trusting the public certificate on client systems is optional and removes the
 browser warning. Use the organization's approved trust process; never copy the
 private key to a client.
 
-If an organization-issued private-CA identity is required instead, use the
-separate private-CA release and its README. This standard installer does not
-import an external certificate chain.
+In private-CA mode, clients must trust the issuing public CA through the
+organization's approved trust process. Copying the public CA to the server does
+not establish browser trust.
 
 ## Install with Sudo privileges
 
@@ -114,8 +126,20 @@ the backend as the existing ZDM owner on loopback port `8080`, and exposes HTTPS
 through NGINX on port `443`.
 
 ```bash
-chmod 755 zdm-gui-linux-x86_64.run
-sudo ./zdm-gui-linux-x86_64.run
+chmod 755 zdm-gui-universal-linux-x86_64.run
+sudo ./zdm-gui-universal-linux-x86_64.run
+```
+
+The interactive installer asks for the certificate mode. It also accepts the
+mode and private-CA inputs on the command line, while retaining prompts for the
+remaining system settings:
+
+```bash
+sudo ./zdm-gui-universal-linux-x86_64.run \
+  --tls-mode private-ca \
+  --tls-cert /absolute/path/server-fullchain.pem \
+  --tls-key /absolute/path/server.key \
+  --tls-ca /absolute/path/customer-root-ca.pem
 ```
 
 Run it from an interactive terminal. The installer prompts for application,
@@ -137,8 +161,9 @@ that installer-managed unit and does not stop a running ZDM service.
 
 On a new GUI database, a random initial `zdmadmin` password appears once after
 successful installation. Store it securely and change it at first sign-in.
-Existing GUI accounts, password hashes, profiles and audit history are
-preserved when the same data directory is reused.
+An upgrade that reuses the same data directory preserves existing GUI accounts.
+A completed uninstall deletes that data, so the next installation creates a
+new database and displays a new temporary `zdmadmin` password.
 
 ## User precheck and install
 
@@ -182,9 +207,20 @@ PY
 Run a no-write precheck, then install as the ZDM owner without sudo:
 
 ```bash
-chmod 755 zdm-gui-linux-x86_64.run
-./zdm-gui-linux-x86_64.run --user --yes --check
-./zdm-gui-linux-x86_64.run --user
+chmod 755 zdm-gui-universal-linux-x86_64.run
+./zdm-gui-universal-linux-x86_64.run --user --yes --check
+./zdm-gui-universal-linux-x86_64.run --user
+```
+
+For a private-CA user installation, validate first and then repeat without
+`--check`:
+
+```bash
+./zdm-gui-universal-linux-x86_64.run --user --yes --check \
+  --tls-mode private-ca --tls-name gui.customer.internal \
+  --tls-cert "$HOME/zdm-private-ca-request/server-fullchain.pem" \
+  --tls-key "$HOME/zdm-private-ca-request/server.key" \
+  --tls-ca "$HOME/zdm-private-ca-request/customer-root-ca.pem"
 ```
 
 `Checks passed. No changes made.` confirms the local prerequisite and path
@@ -209,6 +245,10 @@ address, not a browser URL or certificate identity.
 | `--zdm-base PATH` | Existing writable ZDM base; default `/u01/app/zdmbase`. |
 | `--zdm-stage PATH` | Existing writable stage; default `/u01/app/zdmstage`. |
 | `--tls-name NAME` | Browser DNS hostname or IP; default server FQDN. |
+| `--tls-mode MODE` | `self-signed` (default) or `private-ca`; supported for ZDM 21.4, 21.5 and 26.1. |
+| `--tls-cert PATH` | Private-CA leaf certificate followed by intermediate certificates. |
+| `--tls-key PATH` | Private-CA matching server key, mode `0600`. |
+| `--tls-ca PATH` | Private-CA public root trust bundle. |
 | `--bind ADDRESS` | `127.0.0.1` or `0.0.0.0`; default loopback. |
 | `--port NUMBER` | HTTPS port; default `8443`, valid range `1024`–`65535`. |
 | `--allowed-clients CIDRS` | Comma-separated IPs/CIDRs; default loopback only. |
@@ -218,8 +258,8 @@ address, not a browser URL or certificate identity.
 | `--no-start` | Install without starting the GUI immediately. |
 | `--help` / `-h` | Show installer help. |
 
-The root-managed system installer is interactive and does not accept these
-user-mode options.
+The root-managed system installer is interactive but accepts the four TLS
+selection/input options shown above.
 
 ## Command help
 
@@ -227,8 +267,8 @@ Display general installer help, detailed user-mode options, or uninstaller
 options without making changes:
 
 ```bash
-./zdm-gui-linux-x86_64.run --help
-./zdm-gui-linux-x86_64.run --user --help
+./zdm-gui-universal-linux-x86_64.run --help
+./zdm-gui-universal-linux-x86_64.run --user --help
 ./zdm-gui-uninstall.run --help
 ```
 
@@ -257,9 +297,10 @@ the NGINX listener instead:
 ssh -N -L 18443:127.0.0.1:443 SSH_USER@ZDM_HOST
 ```
 
-The generated certificate includes loopback SANs. Accept the self-signed
-certificate warning or import the public certificate using the approved client
-trust process. For direct system-mode access, open `https://HOSTNAME`. For
+In self-signed mode, accept the certificate warning or import the public
+certificate using the approved client trust process. In private-CA mode, use a
+URL identity present in the certificate SAN and trust its issuing CA. For
+direct system-mode access, open `https://HOSTNAME`. For
 direct user-mode access, open `https://HOSTNAME:8443` unless a different port
 was selected. In both cases, replace `HOSTNAME` with the certificate hostname
 entered during installation. Do not use `0.0.0.0` as the browser URL.
@@ -352,15 +393,21 @@ Rerun the installer in the same mode and select the same application, data and
 ZDM paths. System mode is interactive. For user mode, repeat any non-default
 network, service or path arguments because omitted options use their defaults.
 
-Queued or running GUI operations block upgrade and uninstall. Existing accounts,
-password hashes, profiles and audit history are preserved when the same data
-directory is used. The installer saves protected snapshots before replacing
-existing application code: system backups are under `/var/backups/zdm-gui/` and
-user backups are under `~/.local/state/zdm-gui/backups/`.
+Queued or running GUI operations block upgrade and uninstall. During an upgrade,
+existing accounts, password hashes, profiles and audit history are preserved
+when the same data directory is used. A completed uninstall is different: it
+permanently removes that data. The installer saves protected snapshots before
+replacing existing application code: system backups are under
+`/var/backups/zdm-gui/` and user backups are under
+`~/.local/state/zdm-gui/backups/`.
 
-The generated certificate is installer-managed. Record the selected certificate
-identity and network settings before upgrade. Back up GUI data and ZDM
-credential/key storage using the organization's secure backup process.
+The selected certificate mode is installer-managed and preserved as the next
+system-install prompt default. User-mode command options default to self-signed,
+so repeat `--tls-mode private-ca` and all three TLS file options when renewing
+or upgrading a private-CA user installation. Existing TLS files are included in
+the protected upgrade backup before replacement. Record the certificate
+identity and network settings and back up GUI data and ZDM credential/key
+storage using the organization's secure backup process.
 
 ## Uninstall
 
@@ -395,12 +442,18 @@ only on user-owned files and user services. Its optional auto-start removal can
 remove only an installed **user** ZDM auto-start unit; it cannot change system
 units.
 
-Both modes preserve GUI data, Oracle ZDM software, ZDM home/base/stage,
-migration files, managed `/etc/hosts` entries and backups, shared packages,
-firewall rules and SELinux settings. Configuration and TLS material are backed
-up under `/var/backups/zdm-gui-uninstall.*` in system mode or
-`~/.local/state/zdm-gui/uninstall-backups/` in user mode. Remove obsolete
-firewall and client trust settings separately after review.
+**Uninstall permanently deletes GUI data and configuration.** This includes the
+GUI database, accounts and password hashes, profiles, activity history, saved
+settings, application files, installer-managed TLS material, and installer-made
+GUI upgrade/uninstall snapshots. Back up any GUI information you need outside
+the installer-managed backup locations before confirming uninstall. After
+reinstall, the installer creates a fresh GUI database and displays a new
+temporary `zdmadmin` password.
+
+Both modes preserve Oracle ZDM software, ZDM home/base/stage, migration files,
+managed `/etc/hosts` entries and backups, shared packages, firewall rules and
+SELinux settings. Remove obsolete firewall and client trust settings separately
+after review.
 
 ## Security and validation scope
 
@@ -410,6 +463,8 @@ hostname-resolution checks remain available. System mode uses the separate
 root helper for managed host entries.
 
 Self-signed TLS protects transport but does not provide CA-backed server
-identity. The release does not add MFA, login throttling, CRL or OCSP checking.
+identity. Private-CA mode validates the supplied material during installation
+but does not add automated renewal, CRL or OCSP checking. The release does not
+add MFA or login throttling.
 Restrict network access and protect migration response files, logs, GUI data,
 backups and ZDM credentials according to the organization's requirements.

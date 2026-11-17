@@ -11,9 +11,10 @@ Usage: sudo ./zdm-gui-uninstall.run [--dry-run] [--yes]
        [--user] [--remove-zdm-autostart] [--app-dir /path] [--data-dir /path]
 For a user installation, run with --user as its owner, without sudo.
 
-Removes GUI services, application files, and GUI HTTPS configuration.
-Preserves GUI data, Oracle ZDM, migration files, managed /etc/hosts entries,
-host-file backups, and (by default) the optional ZDM auto-start service.
+Removes GUI services, application files, GUI data (including accounts,
+password hashes, profiles, history and settings), and HTTPS configuration.
+Preserves Oracle ZDM, migration files, managed /etc/hosts entries, host-file
+backups, and (by default) the optional ZDM auto-start service.
 Shared RPM packages, NGINX, firewall and SELinux settings are preserved.
 --dry-run prints the plan without changing the system.
 --yes skips the interactive confirmation.
@@ -55,7 +56,6 @@ if [[ "$USER_MODE" == 1 ]]; then
   [[ -n "$USER_PYTHON" ]] || fail 'Python 3.8+ is required for user-mode uninstall.'
   "$USER_PYTHON" - "$APP_DIR" "$DATA_DIR" "$DRY_RUN" "$ASSUME_YES" "$REMOVE_AUTOSTART" <<'USER_UNINSTALL'
 import importlib.util,json,os,pwd,shutil,sqlite3,subprocess,sys
-from datetime import datetime,timezone
 from pathlib import Path
 
 os.umask(0o077)
@@ -77,6 +77,10 @@ if data_arg and Path(data_arg).resolve()!=data:
     raise SystemExit('--data-dir does not match the installed data directory; nothing removed.')
 if app in {Path('/'),Path('/home'),Path('/u01'),Path('/u01/app'),Path('/opt'),Path('/usr'),Path('/var'),account_home} or app.stat().st_uid!=os.getuid():
     raise SystemExit('Refusing broad or foreign-owned application directory.')
+if data in {Path('/'),Path('/home'),Path('/u01'),Path('/u01/app'),Path('/opt'),Path('/usr'),Path('/usr/local'),Path('/var'),Path('/var/lib'),Path('/etc'),Path('/tmp'),account_home}:
+    raise SystemExit('Refusing broad data directory.')
+if data.exists() and (not data.is_dir() or data.stat().st_uid!=os.getuid()):
+    raise SystemExit('Refusing non-directory or foreign-owned data path.')
 if not (app/'backend/app.py').is_file() or not (app/'frontend/dist').is_dir():
     raise SystemExit('Application markers are missing; nothing removed.')
 if app==data or data in app.parents:
@@ -85,6 +89,8 @@ for value in config['protected']:
     protected=Path(value).resolve()
     if app==protected or app in protected.parents or protected in app.parents:
         raise SystemExit('Application overlaps protected ZDM storage; nothing removed.')
+    if data==protected or data in protected.parents or protected in data.parents:
+        raise SystemExit('Data overlaps protected ZDM storage; nothing removed.')
 components=('backend','frontend','deploy','.venv','.oci-venv','tls','bin','run','logs')
 for name in components:
     if app/name==data or app/name in data.parents:
@@ -92,7 +98,8 @@ for name in components:
 units=account_home/'.config/systemd/user'
 auto=units/'zdmservice-autostart.service'
 auto_installed=auto.exists() or auto.is_symlink()
-print('Remove user GUI:',app,'\nPreserve data:',data)
+print('Remove user GUI:',app,'\nPermanently remove GUI data:',data)
+print('This deletes GUI accounts, password hashes, profiles, history and settings.')
 print('Preserve Oracle ZDM, system services, shared packages, /etc/hosts and firewall settings.')
 if auto_installed:
     print('User ZDM auto-start unit found.' + (' Removal selected.' if remove=='1' else ' Preserved unless selected.'))
@@ -121,31 +128,23 @@ unit=units/'zdm-gui.service'
 if unit.exists() and str(config_path) not in unit.read_text():
     raise SystemExit('The user GUI service belongs to another installation; nothing removed.')
 subprocess.run([str(app/'.venv/bin/python'),str(runtime_path),str(config_path),'stop'],check=True)
-backup=account_home/'.local/state/zdm-gui/uninstall-backups'/datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-backup.mkdir(parents=True,mode=0o700)
-for source in (config_path,app/'tls',unit):
-    if source.is_dir():shutil.copytree(source,backup/source.name)
-    elif source.exists():shutil.copy2(source,backup/source.name)
 if unit.exists():
     subprocess.run(['systemctl','--user','disable','zdm-gui.service'],check=True)
     unit.unlink()
 if auto_installed and remove=='1':
-    shutil.copy2(auto,backup/auto.name)
     subprocess.run(['systemctl','--user','disable','zdmservice-autostart.service'],check=True)
     auto.unlink()
 if config.get('service')=='user' or (auto_installed and remove=='1'):
     subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-if app in data.parents:
-    for name in components:
-        path=app/name
-        if path.is_symlink():path.unlink()
-        elif path.is_dir():shutil.rmtree(path)
-        elif path.exists():path.unlink()
-else:
+data_removed_with_app=app in data.parents
+if app.exists():
     shutil.rmtree(app)
-if manifest.exists() and Path(saved.get('app','/')).resolve()==app:
-    manifest.unlink()
-print('User GUI uninstalled. Data preserved:',data,'\nConfiguration/TLS backup:',backup)
+if not data_removed_with_app and data.exists():
+    shutil.rmtree(data)
+for state_root in (account_home/'.config/zdm-gui',account_home/'.local/state/zdm-gui'):
+    if state_root.is_symlink():state_root.unlink()
+    elif state_root.exists():shutil.rmtree(state_root)
+print('User GUI uninstalled. GUI data and configuration removed:',data)
 USER_UNINSTALL
   exit $?
 fi
@@ -180,7 +179,9 @@ normalize(){
 }
 APP_DIR=$(normalize "$APP_DIR"); DATA_DIR=$(normalize "$DATA_DIR")
 case "$APP_DIR" in /|/opt|/u01|/u01/app|/usr|/usr/local|/var|/var/lib|/home|/root|/etc|/tmp) fail "Refusing broad application path: $APP_DIR";; esac
+case "$DATA_DIR" in /|/opt|/u01|/u01/app|/usr|/usr/local|/var|/var/lib|/home|/root|/etc|/tmp) fail "Refusing broad data path: $DATA_DIR";; esac
 [[ "$APP_DIR" != "$DATA_DIR" ]] || fail 'Application and data directories are identical; review manually.'
+[[ "$APP_DIR" != "$DATA_DIR/"* ]] || fail 'Application is inside the data directory; review manually.'
 # An application removal must never encompass the ZDM home/base/stage/account.
 for key in ZDM_HOME ZDM_BASE ZDM_STAGE ZDM_OS_HOME; do
   value=$(env_value "$key")
@@ -192,6 +193,7 @@ for key in ZDM_HOME ZDM_BASE ZDM_STAGE ZDM_OS_HOME; do
   [[ -n "$value" ]] || continue
   value=$(normalize "$value")
   [[ "$value" != "$APP_DIR" && "$value" != "$APP_DIR/"* && "$APP_DIR" != "$value/"* ]] || fail "Application overlaps protected $key: $value"
+  [[ "$value" != "$DATA_DIR" && "$value" != "$DATA_DIR/"* && "$DATA_DIR" != "$value/"* ]] || fail "Data overlaps protected $key: $value"
 done
 APP_PRESENT=0
 if [[ -e "$APP_DIR" ]]; then
@@ -219,7 +221,8 @@ if [[ "$AUTOSTART_INSTALLED" == 1 && "$REMOVE_AUTOSTART" == 0 && "$DRY_RUN" == 0
   if [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then REMOVE_AUTOSTART=1; fi
 fi
 
-printf 'Remove GUI application: %s\nPreserve GUI data: %s\n' "$APP_DIR" "$DATA_DIR"
+printf 'Remove GUI application: %s\nPermanently remove GUI data: %s\n' "$APP_DIR" "$DATA_DIR"
+printf '%s\n' 'Delete: GUI accounts, password hashes, profiles, history and settings.'
 printf '%s\n' 'Remove: zdm-gui and zdm-hosts-manager services, GUI HTTPS config/certificates.'
 printf '%s\n' 'Preserve: Oracle ZDM, migration files, /etc/hosts and host backups.'
 if [[ "$AUTOSTART_INSTALLED" == 0 ]]; then
@@ -232,7 +235,7 @@ else
 fi
 printf '%s\n' 'Preserve: shared packages, NGINX, firewall and SELinux settings.'
 [[ "$APP_PRESENT" == 1 ]] || printf 'Application directory is absent; only GUI configuration will be removed.\n'
-[[ "$NESTED_DATA" == 0 ]] || printf 'Data is inside the application directory; only code and virtual environments will be removed.\n'
+[[ "$NESTED_DATA" == 0 ]] || printf 'GUI data is inside the application directory and will be removed with it.\n'
 if [[ "$DRY_RUN" == 1 ]]; then printf 'Dry run complete. No changes made.\n'; exit 0; fi
 if [[ "$ASSUME_YES" == 0 ]]; then
   [[ -t 0 ]] || fail 'Use an interactive terminal, or --yes after reviewing --dry-run.'
@@ -268,7 +271,8 @@ for unit in zdm-gui.service zdm-hosts-manager.service; do
   fi
 done
 
-# Save configuration and TLS material in a root-only directory for recovery.
+# Keep a temporary root-only rollback copy while changing NGINX. It is deleted
+# after successful uninstall so GUI configuration and TLS material do not persist.
 mkdir -p /var/backups
 BACKUP_DIR=$(mktemp -d /var/backups/zdm-gui-uninstall.XXXXXXXX)
 chmod 0700 "$BACKUP_DIR"
@@ -297,22 +301,29 @@ fi
 rm -f -- /etc/systemd/system/zdm-gui.service /etc/systemd/system/zdm-hosts-manager.service \
   /etc/tmpfiles.d/zdm-hosts-manager.conf /usr/local/libexec/zdm-hosts-manager.py \
   /etc/zdm-gui.env /run/zdm-gui-bootstrap.env
-if [[ "$NGINX_CHANGED" == 1 ]]; then
-  rm -f -- /etc/pki/tls/certs/zdm-gui.crt /etc/pki/tls/private/zdm-gui.key
-fi
+rm -f -- /etc/pki/tls/certs/zdm-gui.crt /etc/pki/tls/private/zdm-gui.key
 rm -rf -- /etc/zdm-gui /run/zdm-hosts-manager
 if [[ "$AUTOSTART_INSTALLED" == 1 && "$REMOVE_AUTOSTART" == 1 ]]; then
   remove_zdm_autostart
 fi
 systemctl daemon-reload
 if [[ "$APP_PRESENT" == 1 ]]; then
-  if [[ "$NESTED_DATA" == 1 ]]; then
-    for item in backend frontend deploy .venv .oci-venv; do rm -rf -- "$APP_DIR/$item"; done
-  else
-    rm -rf -- "$APP_DIR"
-  fi
+  rm -rf -- "$APP_DIR"
 fi
-printf '\nGUI uninstalled.\nPreserved GUI data: %s\nConfiguration backup: %s\n' "$DATA_DIR" "$BACKUP_DIR"
+if [[ "$NESTED_DATA" == 0 && -e "$DATA_DIR" ]]; then
+  rm -rf -- "$DATA_DIR"
+fi
+# Installer-managed upgrade and prior-uninstall snapshots can contain the GUI
+# database, password hashes and configuration; remove them on successful uninstall.
+rm -rf -- /var/backups/zdm-gui
+for old_backup in /var/backups/zdm-gui-uninstall.*; do
+  [[ -e "$old_backup" || -L "$old_backup" ]] || continue
+  case "$old_backup" in
+    /var/backups/zdm-gui-uninstall.[A-Za-z0-9]*) rm -rf -- "$old_backup";;
+    *) fail "Refusing unexpected backup path: $old_backup";;
+  esac
+done
+printf '\nGUI uninstalled.\nGUI data and configuration removed: %s\n' "$DATA_DIR"
 if [[ "$AUTOSTART_INSTALLED" == 1 && "$REMOVE_AUTOSTART" == 1 ]]; then
   printf '%s\n' 'ZDM auto-start removed; running Oracle ZDM was not stopped.'
 else
