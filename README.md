@@ -389,6 +389,22 @@ managed.
 
 ## Upgrade and preserved data
 
+### Interactive credential progress
+
+When ZDM requests passwords or passphrases during Evaluate or Migrate, the
+console keeps one credential-session window open for the entire command. Each
+prompt is numbered (`Credential 1`, `Credential 2`, and so on), identifies the
+source/target and credential purpose when the ZDM prompt provides that context,
+and displays the original masked CLI prompt.
+
+After a credential is submitted, the same window confirms that it was accepted
+and shows **ZDM processing** while the command continues. The next prompt opens
+in that window automatically. When no further credential is required, the
+window reports whether the command completed or needs attention. ZDM determines
+the number of prompts dynamically, so the console displays the current sequence
+without guessing a total. Credential values remain memory-only and are never
+written to profiles, history, logs, or the GUI database.
+
 Rerun the installer in the same mode and select the same application, data and
 ZDM paths. System mode is interactive. For user mode, repeat any non-default
 network, service or path arguments because omitted options use their defaults.
